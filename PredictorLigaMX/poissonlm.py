@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+
 class LigaMXDataset:
     """
     Carga todas las temporadas de Liga MX contenidas en la carpeta
@@ -164,12 +165,6 @@ df["fecha"] = pd.to_datetime(
     format="%a %b %d %Y"
 )
 df = df.sort_values("fecha").reset_index(drop=True)
-#%%
-df.to_csv(
-    "liga_mx_historica.csv",
-    index=False,
-    encoding="utf-8-sig"
-)
 
 #%%
 print(df.local.nunique())
@@ -260,3 +255,103 @@ nuevo = pd.DataFrame({
 })
 
 print(poisson_model.predict(nuevo))
+#%%
+
+def simular_partido(modelo, local, visitante, goles_max=10):
+    loc= pd.DataFrame({"equipo": [local],"oponente":[visitante],"home":[1]})
+    vis=pd.DataFrame({"equipo":visitante, "oponente":local, "home":[0]})
+    goles_local=modelo.predict(loc)
+    goles_visitante=modelo.predict(vis)
+    marcadores=[[poisson.pmf(i,goles) for i in range(0,goles_max)] for goles in [goles_local,goles_visitante]]
+    return (np.outer(np.array(marcadores[0]),np.array(marcadores[1])))
+#%%
+def score_matrix(prob,
+                      equipo_local="Local",
+                      equipo_visitante="Visitante",
+                      mostrar_porcentaje=True,
+                      cmap="Blues"):
+   
+    n = prob.shape[0]
+
+    fig, ax = plt.subplots(figsize=(8,8))
+
+    # Heatmap
+    im = ax.imshow(prob, cmap=cmap)
+
+    # Barra de color
+    cbar = plt.colorbar(im)
+    cbar.set_label("Probabilidad")
+
+    # Diagonal
+    ax.plot([-0.5,n-0.5],[-0.5,n-0.5],
+            color="black",
+            linewidth=2)
+
+    # Texto en cada celda
+    for i in range(n):
+        for j in range(n):
+
+            if i > j:
+                color = "green"
+            elif i == j:
+                color = "black"
+            else:
+                color = "red"
+
+            if mostrar_porcentaje:
+                texto = f"{100*prob[i,j]:.1f}%"
+            else:
+                texto = f"{prob[i,j]:.3f}"
+
+            ax.text(j,
+                    i,
+                    texto,
+                    ha="center",
+                    va="center",
+                    color=color,
+                    fontsize=8)
+
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+
+    ax.set_xlabel(f"Goles {equipo_visitante}", fontsize=12)
+    ax.set_ylabel(f"Goles {equipo_local}", fontsize=12)
+
+    ax.set_title(f"{equipo_local} vs {equipo_visitante}",
+                 fontsize=16,
+                 fontweight="bold")
+
+    plt.tight_layout()
+    plt.show()
+plt.show()
+
+#%%
+def prob_a_american(proba_individual):
+
+    decimal = 1/proba_individual
+
+    if decimal >= 2:
+        return round((decimal-1)*100)
+    else:
+        return round(-100/(decimal-1))
+#%%
+
+def win_prob(prob, local="loc", visitante='vis'):
+    prob_local = np.tril(prob, -1).sum()
+    prob_empate = np.trace(prob)
+    prob_visitante = np.triu(prob, 1).sum()
+    diccionario={local:prob_local,"empate":prob_empate,visitante:prob_visitante}
+    tabla=pd.DataFrame([diccionario])
+    tabla[f"Momio { local}"]=tabla[local].apply(prob_a_american)
+    tabla[" Momio empate"]=tabla["empate"].apply(prob_a_american)
+    tabla[f"Momio {visitante}"]=tabla[visitante].apply(prob_a_american)
+    return tabla
+   
+#%%
+partido_random=simular_partido(poisson_model, "Deportivo Toluca", "Pumas UNAM", 10)
+print(score_matrix(partido_random, "Toluca", "Pumas UNAM"))
+probas=win_prob(partido_random, "Toluca", "Pumas UNAM")
+print(probas)
+
+
+
